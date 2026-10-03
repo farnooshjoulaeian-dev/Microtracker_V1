@@ -1,159 +1,219 @@
-# FluorescenceTracker V0
+# Microtracker_V1
 
-A semi-automatic single-bacterium tracker for fluorescence videos. This is a
-working first version, informed by MicroTracker V0/V1 and the PI's tracker.
-The user reviews identity and corrects the same trajectory; AUTO uses distance
-alone and never inserts predicted positions.
+A semi-automatic single-bacterium tracker for fluorescence microscopy videos,
+with a PyQt interface, distance-based automatic linking and manual trajectory
+correction.
 
-## Run
+The user monitors cell identity and corrects the trajectory when necessary.
+The software records measured region centroids and does not insert predicted
+positions or interpolate missing frames.
 
-From this folder, using the existing Python environment:
+## Installation
+
+Requires Python 3.10 or newer. Development testing used Python 3.11.
+
+Clone the repository and enter its folder:
 
 ```sh
-python run.py ../flour_bacteria_test1.mp4
+git clone https://github.com/farnooshjoulaeian-dev/Microtracker_V1.git
+cd Microtracker_V1
 ```
 
-Or run `python run.py` and use Load video. Python 3.10 or newer is required;
-validation used Python 3.11. For a separate environment:
+Create and activate a virtual environment:
 
 ```sh
 python -m venv .venv
+```
+
+On macOS or Linux:
+
+```sh
 source .venv/bin/activate
+```
+
+On Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
+
+```sh
 python -m pip install -r requirements.txt
+```
+
+## Run
+
+```sh
 python run.py
 ```
 
-## Workflow
+Use Load to select a video, or supply its path:
 
-1. Load a video. The initial mode is MANUAL, paused.
-2. Click the bacterium. The click identifies a segmented object; its measured
-   centroid is stored, not the mouse position. Orange area-rejected objects can
-   still be selected manually. If the object is not segmented, adjust threshold.
-3. Press Track or M to start AUTO from the selected point into the next frame.
-4. Space pauses/resumes playback without changing mode.
-5. If the identity is wrong, press M to enter MANUAL and pause. Navigate to the
-   appropriate frame, select the correct bacterium, and press M to resume AUTO.
-6. Save writes a CSV and a companion `.session.json` with metadata and diagnostics.
+```sh
+python run.py /path/to/video.mp4
+```
 
-AUTO pauses on failure but remains AUTO. Only the user switches modes. The status
-bar and log report why it stopped; the table lists area and distance diagnostics.
-After a failure, M enters MANUAL so the user can select a recovery point.
-MANUAL playback advances frames without adding artificial trajectory points.
+Video files are not included in this repository.
 
-Left/Right navigate (arrows edit numbers when a numeric input has focus). The
-slider and frame input allow seeking. M and Space work while numeric controls
-have focus. Wheel zooms; Fit image restores the full-frame view.
+## Tracking workflow
 
-## Correction and gaps
+1. Load a video. The application starts in MANUAL mode, paused.
+2. Click a segmented bacterium to record its measured centroid.
+3. Press M or Track to start AUTO from the selected point.
+4. Monitor the trajectory. Space pauses or resumes playback.
+5. To correct identity, press M to enter MANUAL, navigate to the appropriate
+   frame and click the correct region.
+6. Press M to resume AUTO as part of the same trajectory.
+7. Use Save to export measurements and session metadata.
 
-The visible Correction behavior control defaults to removing points after an
-earlier manual correction. Those later points may belong to the wrong bacterium.
-Undo correction restores the previous trajectory, including removed points.
-Alternatively choose Keep later until replaced; points then remain active until
-AUTO overwrites them, and should be reviewed before export.
+AUTO pauses when no eligible candidate is within the search radius. It remains
+in AUTO mode until the user changes modes.
 
-Only one point is stored per frame. Navigation does not add, delete or remeasure
-points. Retracking overwrites that frame's point. Missing frames remain missing;
-the display does not draw a continuous line across gaps. Clear track is undoable.
-Loading another video resets the session and asks before discarding unsaved work.
+Manual selection bypasses AUTO area limits, but still requires a segmented
+region. A mouse click itself is not stored as a measured cell position.
 
-## Algorithms and units
+### Controls
 
-Full-frame BGR to grayscale → Gaussian blur → fixed threshold → 8-connected
-components → floating centroids and foreground pixel counts → explicit area
-acceptance → nearest accepted centroid within the search radius.
-
-Starting settings: blur kernel 3x3, sigma 3 pixels, threshold 40 on blurred
-grayscale intensities (0..255), area 6..150 pixels², radius 20 pixels. All these
-are adjustable and recorded. No background subtraction, NLM, morphology closing,
-VAC, motion prediction, automatic gap filling or hidden intensity normalization
-is used in the runnable tracker.
-
-The threshold-40 setting preserves a broader footprint than threshold 60 in the
-reviewed dim target. It is a prototype setting, not a validated biological size
-measurement. Area limits include their endpoints and do not delete rejected labels.
-Labels identify regions within one frame, not persistent bacterial identities.
-Multiple candidates are resolved by nearest centroid; the user monitors identity.
-
-Grayscale/Overlay/Binary mask and Display low/high affect visualization only.
-Cyan boundaries identify area-accepted regions; orange boundaries identify rejected
-regions. Green dots/segments are AUTO points, yellow dots are manual points, and
-the pink circle is the search radius about the continuation position.
-
-Coordinates and areas are in pixels/pixels². Spatial calibration is intentionally
-unset; no guessed micrometre conversion is made. `time_s` uses frame/reported FPS,
-assuming constant frame rate. If FPS is unknown, measurement times are blank.
-Playback FPS controls presentation speed, not recorded physical time.
-
-## Structure
-
-| File | Responsibility |
+| Control | Action |
 |---|---|
-| detection.py | Settings, Gaussian smoothing, measured regions and rejection status |
-| segmentation.py | Threshold masks and connected-component measurements |
-| linking.py | Distance-based selection and area-independent manual label selection |
-| trajectory.py | Unique frame-indexed points, correction, Undo and export |
-| video.py | Decoding, seeking and video metadata |
-| main_window.py | Qt interaction, playback state, previews and diagnostics |
+| M | Switch between MANUAL and AUTO |
+| Space | Pause or resume playback |
+| Left / Right | Navigate frames |
+| Slider or frame input | Seek to a frame |
+| Mouse wheel | Zoom |
+| Fit | Restore the full-frame view |
+| Undo | Restore the previous correction or cleared trajectory |
+
+Arrow keys edit values when a numeric input has focus.
+
+## Detection and linking
+
+The current processing pipeline is:
+
+1. Convert the full frame to grayscale.
+2. Apply Gaussian smoothing.
+3. Apply a fixed intensity threshold.
+4. Measure 8-connected foreground regions.
+5. Mark regions accepted or rejected by the area limits.
+6. Link the nearest accepted centroid within the search radius.
+
+All segmented regions are retained for diagnostics and manual selection.
+
+### Starting parameters
+
+| Parameter | Default |
+|---|---|
+| Gaussian kernel | 3 × 3 pixels |
+| Gaussian sigma | 3 pixels |
+| Intensity threshold | 40 on a 0–255 grayscale scale |
+| Accepted area | 6–150 pixels², inclusive |
+| Search radius | 20 pixels |
+
+These parameters are adjustable and recorded with measurements. Defaults are
+starting settings, not values validated for every video.
+
+AUTO uses Euclidean distance only. It does not use directional persistence,
+velocity autocorrelation, motion prediction or automatic gap filling.
+
+Frame-local region labels are segmentation identifiers, not persistent cell
+identities. The nearest candidate may be a different bacterium, so visual
+supervision is required.
+
+## Correction and missing frames
+
+Only one point is stored per frame. A correction replaces that frame's point.
+
+By default, correcting an earlier frame removes later trajectory points.
+Undo restores the previous trajectory. The alternative correction policy
+retains later points until replaced; these should be reviewed before export.
+
+Navigation alone does not change measurements. Missing frames remain missing,
+and trajectory lines are not drawn across gaps.
+
+## Measurements and units
+
+- Positions are segmented-region centroids in pixels.
+- Area is the foreground pixel count, expressed as pixels².
+- Spatial calibration is not supplied, so no micrometre conversion is made.
+- Nominal time is the zero-based frame index divided by reported video FPS.
+  This assumes constant frame rate.
+- If video FPS is unknown, measurement times are left blank.
+- Playback FPS changes display speed, not measurement time.
+
+The fluorescent footprint depends on threshold, focus, intensity and overlap.
+Its area is not automatically a physical cell-size measurement.
+
+## Display
+
+Grayscale, overlay, binary-mask and display-contrast settings affect
+visualization only.
+
+| Appearance | Meaning |
+|---|---|
+| Cyan boundaries | Area-accepted regions |
+| Orange boundaries | Area-rejected regions |
+| Green trajectory points and lines | AUTO measurements |
+| Yellow points | Manual measurements |
+| Pink circle | Search radius around the continuation position |
+
+## Exports and reproducibility
+
+Save produces a CSV and a companion `.session.json`.
+
+The CSV records frame, nominal time, position, region area, frame-local label,
+manual/AUTO source, area status, AUTO displacement and processing parameters
+used for each point.
+
+The JSON records video metadata, dependency versions, session settings,
+correction policy and diagnostic events.
+
+Changing settings does not silently recalculate existing measurements.
+Exports identify the source video but do not embed it. Preserve the original
+video with the exported results.
+
+## Code structure
+
+| File or folder | Responsibility |
+|---|---|
+| detection.py | Detection settings and preprocessing |
+| segmentation.py | Thresholding and region measurements |
+| linking.py | Distance linking and manual region selection |
+| trajectory.py | Frame-indexed measurements, correction and export |
+| video.py | Video decoding, seeking and metadata |
+| main_window.py | GUI interaction, playback and visualization |
 | run.py | Application entry point |
+| tests/ | Automated software checks |
 
-Scientific functions do not depend on Qt. The project uses small flat modules
-for now rather than introducing a framework or package hierarchy prematurely.
+Scientific processing functions are independent of the Qt interface.
 
-## Saving and reproducibility
+## Testing
 
-Each CSV row includes zero-based frame, nominal time, x/y, foreground area,
-frame-local label, manual/AUTO source, area status, displacement (AUTO only),
-detection parameters and search radius used for that point. Changing settings
-does not silently recalculate old points.
-
-The companion JSON records video metadata, dependency versions, current settings,
-display settings, correction policy, manual clicks, setting changes and failed
-link candidate diagnostics. A filename/path identifies the video; the export
-does not copy or embed it. Preserve the original video alongside exported results.
-
-## Checks and observed behavior
+Run from the repository root:
 
 ```sh
-QT_QPA_PLATFORM=offscreen python -m unittest discover -p 'test_*.py'
+QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 ```
 
-Tests cover segmentation geometry, area bounds and retained labels, manual override,
-link stop reasons, unique frame storage, correction/Undo, export metadata, video
-seek behavior, GUI state transitions, shortcut focus and display/detection separation.
+The 27 tests cover segmentation measurements, area limits, manual override,
+distance linking, correction, export, video access and GUI state behavior.
 
-On the reference video, actual distance-only linking from seed (615,502) at frame
-0 continued through frame 194 and paused at frame 195. A nearby region of area
-183 pixels² exceeded maximum 150. The inspected mask appears to join fluorescent
-objects; increasing the limit automatically could accept a merged region.
-Uninterrupted linking is not proof of correct identity; the user must review it.
+Passing these tests verifies software behavior. It does not establish
+biological accuracy or correct identity throughout a recorded trajectory.
 
-Detection plus linking took about 6 ms per full frame in an exploratory run.
-After avoiding content-driven table resizing, a headless GUI run over 74 advances
-including decoding, diagnostics, rendering and event processing took median
-15.5 ms and 95th percentile 23.1 ms. This fits the nominal 40 ms budget of a 25 FPS
-video in that run, but does not guarantee native desktop playback speed.
+## Current limitations
 
-The single-shot playback timer schedules the next frame after processing, subtracting
-elapsed processing time from the desired interval. Sequential playback avoids seeking
-on every frame and reuses detection results for click/preview until settings change.
-Processing remains synchronous in Qt because it was within the measured budget;
-larger videos may require profiling and a worker thread in a later version.
+- Cell identity requires human supervision.
+- Overlapping fluorescent objects can form a merged region.
+- Fixed-threshold segmentation may need adjustment between videos.
+- Physical calibration and independently annotated identity validation
+  remain necessary for quantitative biological conclusions.
+- Processing runs synchronously in the GUI thread. Performance depends on
+  video size and the computer.
+- This is an interactive selected-cell tracker, not a population tracker.
+## License
 
-## Scientific comparison artifacts
+MIT License. See [LICENSE](LICENSE).
 
-The three earlier review documents and scripts remain in the project. Saved
-comparison images, arrays, CSVs and settings are in outputs/. Historical reviews
-describe settings used at that stage; the runnable default is now threshold 40.
-
-```sh
-python compare_preprocessing.py --video ../flour_bacteria_test1.mp4
-python compare_segmentation.py
-python review_detection_sequence.py
-python review_linking.py
-```
-
-Next research checks: review other cells and the remainder of the video, verify
-spatial and temporal calibration, and compare candidate masks at merges/focus
-changes. The first version is ready for supervised use, not unattended identity
-tracking or validated biological size estimation.
+Copyright (c) 2026 Farnoush Joulaeian.
