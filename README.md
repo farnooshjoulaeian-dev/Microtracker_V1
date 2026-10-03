@@ -1,37 +1,45 @@
-# Microtracker_V1
+# MicroTracker
 
-A semi-automatic single-bacterium tracker for fluorescence microscopy videos,
-with a PyQt interface, distance-based automatic linking and manual trajectory
-correction.
+MicroTracker is a semi-automatic single-cell tracking application for fluorescence microscopy videos. It combines simple distance-based automatic linking with manual supervision and trajectory correction through a PyQt graphical interface.
 
-The user monitors cell identity and corrects the trajectory when necessary.
-The software records measured region centroids and does not insert predicted
-positions or interpolate missing frames.
+The software records measured centroids of segmented objects. It does not insert predicted positions or interpolate missing frames.
+
+## Features
+
+- Interactive tracking of a selected fluorescent microorganism
+- Manual selection and correction of cell identity
+- Automatic nearest-neighbour linking within a configurable search radius
+- Configurable segmentation and area filtering
+- Frame-by-frame trajectory inspection
+- Export of measurements and session metadata
+- Automated software tests for core tracking behavior
 
 ## Installation
 
-Requires Python 3.10 or newer. Development testing used Python 3.11.
+Requires Python 3.10 or newer. Development and testing were performed with Python 3.11.
 
-Clone the repository and enter its folder:
+Clone the repository:
 
-```sh
+```bash
 git clone https://github.com/farnooshjoulaeian-dev/Microtracker_V1.git
 cd Microtracker_V1
 ```
 
-Create and activate a virtual environment:
+Create a virtual environment:
 
-```sh
+```bash
 python -m venv .venv
 ```
 
-On macOS or Linux:
+Activate it.
 
-```sh
+macOS or Linux:
+
+```bash
 source .venv/bin/activate
 ```
 
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -39,34 +47,37 @@ On Windows PowerShell:
 
 Install dependencies:
 
-```sh
+```bash
 python -m pip install -r requirements.txt
 ```
 
 ## Run
 
-```sh
+Start the application with:
+
+```bash
 python run.py
 ```
 
-Use Load to select a video, or supply its path:
+A video can also be supplied directly:
 
-```sh
+```bash
 python run.py /path/to/video.mp4
 ```
 
-Video files are not included in this repository.
+Video files are not included in the repository.
 
-## Tracking workflow
+## Basic workflow
 
-1. Load a video. The application starts in MANUAL mode, paused.
-2. Click a segmented bacterium to record its measured centroid.
-3. Press M or Track to start AUTO from the selected point.
-4. Monitor the trajectory. Space pauses or resumes playback.
-5. To correct identity, press M to enter MANUAL, navigate to the appropriate
-   frame and click the correct region.
-6. Press M to resume AUTO as part of the same trajectory.
-7. Use Save to export measurements and session metadata.
+1. Load a microscopy video.
+2. Select a segmented bacterium manually.
+3. Start automatic tracking from the selected object.
+4. Monitor the trajectory and correct the identity manually when necessary.
+5. Export the trajectory and session metadata.
+
+The application starts in **MANUAL** mode.
+
+Press **M** to switch between MANUAL and AUTO tracking.
 
 When no eligible detection is within the search radius, AUTO continues
 playback without adding a measurement for that frame. It searches subsequent
@@ -76,149 +87,145 @@ Missing frames remain missing.
 The user controls intervention: Space pauses or resumes playback, and M
 enters MANUAL mode for correction. Playback stops at the end of the video.
 
-Manual selection bypasses AUTO area limits, but still requires a segmented
-region. A mouse click itself is not stored as a measured cell position.
-
-### Controls
+## Controls
 
 | Control | Action |
 |---|---|
-| M | Switch between MANUAL and AUTO |
-| Space | Pause or resume playback |
-| Left / Right | Navigate frames |
-| Slider or frame input | Seek to a frame |
+| `M` | Switch between MANUAL and AUTO |
+| `Space` | Pause or resume playback |
+| `Left / Right` | Navigate frames |
+| Frame slider/input | Seek to a frame |
 | Mouse wheel | Zoom |
-| Fit | Restore the full-frame view |
-| Undo | Restore the previous correction or cleared trajectory |
+| `Fit` | Restore full-frame view |
+| `Undo` | Restore the previous trajectory state |
 
-Arrow keys edit values when a numeric input has focus.
-
-## Detection and linking
+## Detection and tracking
 
 The current processing pipeline is:
 
-1. Convert the full frame to grayscale.
-2. Apply Gaussian smoothing.
-3. Apply a fixed intensity threshold.
-4. Measure 8-connected foreground regions.
-5. Mark regions accepted or rejected by the area limits.
-6. Link the nearest accepted centroid within the search radius.
+```text
+Video frame
+    ↓
+Grayscale conversion
+    ↓
+Gaussian smoothing
+    ↓
+Intensity thresholding
+    ↓
+Connected-component segmentation
+    ↓
+Area filtering
+    ↓
+Nearest-neighbour linking
+    ↓
+Trajectory
+```
 
-All segmented regions are retained for diagnostics and manual selection.
+Automatic tracking currently uses Euclidean distance only. It does not use motion prediction, directional persistence or automatic gap filling.
 
-### Starting parameters
+All segmented regions are retained so that rejected objects can still be inspected or selected manually.
+
+### Default parameters
 
 | Parameter | Default |
+|---|---:|
+| Gaussian kernel | 3 × 3 px |
+| Gaussian sigma | 3 px |
+| Intensity threshold | 40 / 255 |
+| Accepted area | 6–150 px² |
+| Search radius | 20 px |
+
+These values are starting parameters and should be adjusted according to image quality and acquisition conditions.
+
+## Measurements
+
+Trajectory positions correspond to centroids of segmented fluorescent regions.
+
+- Position is currently stored in pixels.
+- Region area is measured in pixels².
+- Physical spatial calibration is not yet applied.
+- Nominal time is calculated from frame number and video FPS.
+- Missing measurements remain missing and are not interpolated.
+
+The measured fluorescent footprint depends on imaging conditions, thresholding, focus and object overlap. It should therefore not automatically be interpreted as the physical size of the bacterium.
+
+## Output and reproducibility
+
+Saving a trajectory produces:
+
+```text
+trajectory.csv
+trajectory.session.json
+```
+
+The CSV contains trajectory measurements and the processing parameters associated with each point.
+
+The session JSON stores information required to interpret and reproduce the analysis, including:
+
+- source-video metadata
+- software dependencies
+- tracking settings
+- correction policy
+- diagnostic events
+
+Changing parameters during a session does not silently modify measurements that were already recorded.
+
+The original microscopy video should be preserved together with the exported analysis files.
+
+## Project structure
+
+```text
+Microtracker_V1/
+│
+├── detection.py
+├── segmentation.py
+├── linking.py
+├── trajectory.py
+├── video.py
+├── main_window.py
+├── run.py
+├── requirements.txt
+│
+└── tests/
+```
+
+| File | Responsibility |
 |---|---|
-| Gaussian kernel | 3 × 3 pixels |
-| Gaussian sigma | 3 pixels |
-| Intensity threshold | 40 on a 0–255 grayscale scale |
-| Accepted area | 6–150 pixels², inclusive |
-| Search radius | 20 pixels |
+| `detection.py` | Detection settings and preprocessing |
+| `segmentation.py` | Segmentation and region measurements |
+| `linking.py` | Automatic linking and manual region selection |
+| `trajectory.py` | Trajectory storage, correction and export |
+| `video.py` | Video decoding and metadata |
+| `main_window.py` | GUI, playback and visualization |
+| `run.py` | Application entry point |
+| `tests/` | Automated software tests |
 
-These parameters are adjustable and recorded with measurements. Defaults are
-starting settings, not values validated for every video.
-
-AUTO uses Euclidean distance only. It does not use directional persistence,
-velocity autocorrelation, motion prediction or automatic gap filling.
-
-Frame-local region labels are segmentation identifiers, not persistent cell
-identities. The nearest candidate may be a different bacterium, so visual
-supervision is required.
-
-## Correction and missing frames
-
-Only one point is stored per frame. A correction replaces that frame's point.
-
-By default, correcting an earlier frame removes later trajectory points.
-Undo restores the previous trajectory. The alternative correction policy
-retains later points until replaced; these should be reviewed before export.
-
-Navigation alone does not change measurements. Missing frames remain missing,
-and trajectory lines are not drawn across gaps.
-
-## Measurements and units
-
-- Positions are segmented-region centroids in pixels.
-- Area is the foreground pixel count, expressed as pixels².
-- Spatial calibration is not supplied, so no micrometre conversion is made.
-- Nominal time is the zero-based frame index divided by reported video FPS.
-  This assumes constant frame rate.
-- If video FPS is unknown, measurement times are left blank.
-- Playback FPS changes display speed, not measurement time.
-
-The fluorescent footprint depends on threshold, focus, intensity and overlap.
-Its area is not automatically a physical cell-size measurement.
-
-## Display
-
-Grayscale, overlay, binary-mask and display-contrast settings affect
-visualization only.
-
-| Appearance | Meaning |
-|---|---|
-| Cyan boundaries | Area-accepted regions |
-| Orange boundaries | Area-rejected regions |
-| Green trajectory points and lines | AUTO measurements |
-| Yellow points | Manual measurements |
-| Pink circle | Search radius around the continuation position |
-
-## Exports and reproducibility
-
-Save produces a CSV and a companion `.session.json`.
-
-The CSV records frame, nominal time, position, region area, frame-local label,
-manual/AUTO source, area status, AUTO displacement and processing parameters
-used for each point.
-
-The JSON records video metadata, dependency versions, session settings,
-correction policy and diagnostic events.
-
-Changing settings does not silently recalculate existing measurements.
-Exports identify the source video but do not embed it. Preserve the original
-video with the exported results.
-
-## Code structure
-
-| File or folder | Responsibility |
-|---|---|
-| detection.py | Detection settings and preprocessing |
-| segmentation.py | Thresholding and region measurements |
-| linking.py | Distance linking and manual region selection |
-| trajectory.py | Frame-indexed measurements, correction and export |
-| video.py | Video decoding, seeking and metadata |
-| main_window.py | GUI interaction, playback and visualization |
-| run.py | Application entry point |
-| tests/ | Automated software checks |
-
-Scientific processing functions are independent of the Qt interface.
+The scientific processing modules are kept separate from the Qt interface.
 
 ## Testing
 
-Run from the repository root:
+Run the test suite from the repository root:
 
-```sh
+```bash
 QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 ```
 
-The 27 tests cover segmentation measurements, area limits, manual override,
-distance linking, correction, export, video access and GUI state behavior.
+The tests cover core software behavior including segmentation, area filtering, manual selection, distance-based linking, trajectory correction, export, video access and GUI state handling.
 
-Passing these tests verifies software behavior. It does not establish
-biological accuracy or correct identity throughout a recorded trajectory.
+Passing the software tests verifies that the implemented functions behave according to their specifications. It does **not** by itself establish biological tracking accuracy or guarantee correct cell identity throughout a trajectory.
 
 ## Current limitations
 
-- Cell identity requires human supervision.
-- Overlapping fluorescent objects can form a merged region.
-- Fixed-threshold segmentation may need adjustment between videos.
-- Physical calibration and independently annotated identity validation
-  remain necessary for quantitative biological conclusions.
-- Processing runs synchronously in the GUI thread. Performance depends on
-  video size and the computer.
-- This is an interactive selected-cell tracker, not a population tracker.
+- Cell identity still requires human supervision.
+- Closely overlapping fluorescent objects may be segmented as a single region.
+- Fixed-threshold segmentation may require adjustment between datasets.
+- Spatial calibration is not yet included in exported measurements.
+- Biological tracking accuracy has not yet been validated against independently annotated trajectories.
+- Image processing currently runs synchronously with the GUI and may become slow for large videos.
+- MicroTracker currently tracks a selected individual object rather than an entire population.
+
 ## License
 
-MIT License. See [LICENSE](LICENSE).
+MIT License.
 
-Copyright (c) 2026 Farnoush Joulaeian.
+Copyright © 2026 Farnoush Joulaeian.
