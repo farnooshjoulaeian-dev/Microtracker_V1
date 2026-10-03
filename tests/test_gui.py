@@ -43,23 +43,52 @@ class GuiTests(unittest.TestCase):
         self.window.unsaved_changes = False
         self.window.close()
 
-    def test_auto_failure_keeps_mode_manual_recovery_continues_same_track(self):
+    def test_auto_miss_continues_and_manual_correction_keeps_same_track(self):
         w = self.window
-        w.start_auto(); w.timer.stop()
+        w.start_auto()
+        w.timer.stop()
+
         w.advance_frame()
         self.assertEqual(w.frame_index, 1)
         self.assertEqual(w.anchor["x_px"], 15.5)
+
+        # Blank frame: playback continues, with no new measurement.
         w.advance_frame()
+        self.assertEqual(w.frame_index, 2)
         self.assertEqual(w.mode, "AUTO")
-        self.assertFalse(w.playing)
-        self.assertEqual(len(w.trajectory.points), 2)
+        self.assertTrue(w.playing)
+        self.assertEqual(w.anchor["frame"], 1)
+        self.assertEqual([p["frame"] for p in w.trajectory.points], [0, 1])
         self.assertIn("no_segmented_regions", w.last_note)
+
+        # Space behavior: pause and resume from the retained anchor.
+        w.toggle_play()
+        self.assertFalse(w.playing)
+        w.toggle_play()
+        w.timer.stop()
+        self.assertTrue(w.playing)
+
+        # Reconnect to a measured detection after the missing frame.
+        w.advance_frame()
+        self.assertEqual(w.frame_index, 3)
+        self.assertEqual(w.anchor["frame"], 3)
+        self.assertEqual(w.anchor["x_px"], 19.5)
+        self.assertEqual([p["frame"] for p in w.trajectory.points], [0, 1, 3])
+
+        # Manual correction replaces the point in the same trajectory.
         w.toggle_mode()
         self.assertEqual(w.mode, "MANUAL")
-        w.navigate(3); w.manual_click(19, 11)
-        w.toggle_mode(); w.timer.stop(); w.advance_frame()
+        self.assertFalse(w.playing)
+        w.manual_click(19, 11)
+        self.assertEqual([p["frame"] for p in w.trajectory.points], [0, 1, 3])
+        self.assertEqual(w.trajectory.get(3)["source"], "manual")
+
+        w.toggle_mode()
+        w.timer.stop()
+        w.advance_frame()
         self.assertEqual([p["frame"] for p in w.trajectory.points], [0, 1, 3, 4])
         self.assertEqual(w.mode, "AUTO")
+        self.assertFalse(w.playing)  # End of video.
 
     def test_earlier_correction_becomes_anchor_and_can_be_undone(self):
         w = self.window

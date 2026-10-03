@@ -68,8 +68,13 @@ Video files are not included in this repository.
 6. Press M to resume AUTO as part of the same trajectory.
 7. Use Save to export measurements and session metadata.
 
-AUTO pauses when no eligible candidate is within the search radius. It remains
-in AUTO mode until the user changes modes.
+When no eligible detection is within the search radius, AUTO continues
+playback without adding a measurement for that frame. It searches subsequent
+frames from the last successful position using the unchanged search radius.
+Missing frames remain missing.
+
+The user controls intervention: Space pauses or resumes playback, and M
+enters MANUAL mode for correction. Playback stops at the end of the video.
 
 Manual selection bypasses AUTO area limits, but still requires a segmented
 region. A mouse click itself is not stored as a measured cell position.

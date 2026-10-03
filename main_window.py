@@ -23,7 +23,7 @@ class FrameView(QtWidgets.QGraphicsView):
         self.setScene(QtWidgets.QGraphicsScene(self))
         self.item = QtWidgets.QGraphicsPixmapItem()
         self.scene().addItem(self.item)
-        self.setBackgroundBrush(QtGui.QColor("#47cd49"))
+        self.setBackgroundBrush(QtGui.QColor("#c7d3c7"))
         self.setMinimumSize(600, 400)
         self.fit_enabled = True
 
@@ -325,7 +325,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def start_auto(self):
         if not self.video:
             self.note("Load a video first."); return
-        if not self.valid_anchor():
+        if self.anchor is None or (
+            self.mode != "AUTO" and not self.valid_anchor()
+        ):
             self.note("Select the cell on this frame in MANUAL, or return to a stored trajectory point."); return
         if self.frame_index == self.video.n_frames-1:
             self.note("End of video; navigate to an earlier frame to continue."); return
@@ -369,7 +371,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if self.frame_index >= self.video.n_frames-1:
             self.pause(); self.note("End of video."); return
-        if self.mode == "AUTO" and not self.valid_anchor():
+        if self.mode == "AUTO" and self.anchor is None:
             self.pause(); self.note("AUTO paused: current frame has no continuation point. M enters MANUAL."); return
         previous = self.anchor
         if not self.load_frame(self.frame_index+1):
@@ -378,10 +380,17 @@ class MainWindow(QtWidgets.QMainWindow):
             result = self.ensure_detection()
             linked = link_nearest(result.regions, (previous["x_px"], previous["y_px"]), self.radius.value())
             if linked.selected is None:
-                self.pause()
-                self.note(f"AUTO paused at frame {self.frame_index}: {linked.reason}. Press M to correct.",
-                          {"event": "auto_stop", "reason": linked.reason, "settings": asdict(self.settings()),
-                           "search_radius_px": self.radius.value(), "candidates": linked.candidates})
+                self.note(
+                    f"AUTO: no match at frame {self.frame_index}: "
+                    f"{linked.reason}. Playback continues; M enters MANUAL.",
+                    {
+                        "event": "auto_miss",
+                        "reason": linked.reason,
+                        "settings": asdict(self.settings()),
+                        "search_radius_px": self.radius.value(),
+                        "candidates": linked.candidates,
+                    },
+                )
             else:
                 self.anchor = self.record_point(linked.selected, "auto")
                 self.last_note = f"Frame {self.frame_index}: area {linked.selected['area_px']} px²; step {linked.selected['distance_px']:.2f} px."
