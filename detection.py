@@ -12,7 +12,7 @@ from segmentation import threshold_mask, measure_regions
 
 @dataclass(frozen=True)
 class DetectionSettings:
-    # Match the PI's default blur recipe; kernel width and sigma are independent.
+    # kernel width and sigma are independent.
     blur_kernel_px: int = 3
     blur_sigma_px: float = 3.0
     threshold_gray: float = 40.0

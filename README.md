@@ -79,13 +79,11 @@ The application starts in **MANUAL** mode.
 
 Press **M** to switch between MANUAL and AUTO tracking.
 
-When no eligible detection is within the search radius, AUTO continues
-playback without adding a measurement for that frame. It searches subsequent
-frames from the last successful position using the unchanged search radius.
-Missing frames remain missing.
+When no eligible detection is within the search radius, AUTO continues playback without adding a measurement for that frame. It searches subsequent frames from the last successful position using the unchanged search radius. Missing frames remain missing. AUTO selects the nearest eligible segmented object within the search radius. If no suitable object is found, tracking pauses until the user intervenes.
 
-The user controls intervention: Space pauses or resumes playback, and M
-enters MANUAL mode for correction. Playback stops at the end of the video.
+Manual selection identifies a segmented region; the measured centroid of that region is stored rather than the raw mouse-click coordinate.
+
+The user controls intervention: Space pauses or resumes playback, and M enters MANUAL mode for correction. Playback stops at the end of the video.
 
 ## Controls
 
