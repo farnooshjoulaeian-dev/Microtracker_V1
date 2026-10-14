@@ -1,12 +1,12 @@
 # MicroTracker
 
-MicroTracker is a semi-automatic single-cell tracking application for fluorescence microscopy videos. It combines simple distance-based automatic linking with manual supervision and trajectory correction through a PyQt graphical interface.
+MicroTracker is a semi-automatic single-cell tracking application for a microscopy videos. It combines simple distance-based automatic linking with manual supervision and trajectory correction through a PyQt graphical interface.
 
-The software records measured centroids of segmented objects. It does not insert predicted positions or interpolate missing frames.
+The software records the user's clicked coordinates for manual points and contour centroids for AUTO points. When contour area is zero, AUTO uses the foreground-pixel centroid instead. It does not insert predicted positions or interpolate missing frames.
 
 ## Features
 
-- Interactive tracking of a selected fluorescent microorganism
+- Interactive tracking of a selected microorganism
 - Manual selection and correction of cell identity
 - Automatic nearest-neighbour linking within a configurable search radius
 - Configurable segmentation and area filtering
@@ -35,7 +35,7 @@ Activate it.
 
 macOS or Linux:
 
-```bash
+```bash  
 source .venv/bin/activate
 ```
 
@@ -70,7 +70,7 @@ Video files are not included in the repository.
 ## Basic workflow
 
 1. Load a microscopy video.
-2. Select a segmented bacterium manually.
+2. Click the bacterium to record its position.
 3. Start automatic tracking from the selected object.
 4. Monitor the trajectory and correct the identity manually when necessary.
 5. Export the trajectory and session metadata.
@@ -124,25 +124,52 @@ All segmented regions are retained so that rejected objects can still be inspect
 
 | Parameter | Default |
 |---|---:|
-| Gaussian kernel | 3 × 3 px |
-| Gaussian sigma | 3 px |
+| Gaussian sigma | 3 px (GUI range 0–7) |
+| Gaussian truncation | 3 sigma |
 | Intensity threshold | 40 / 255 |
 | Accepted area | 6–150 px² |
 | Search radius | 20 px |
 
 These values are starting parameters and should be adjusted according to image quality and acquisition conditions.
 
-## Measurements
+Smoothing uses `skimage.filters.gaussian` with preserved 0–255 intensity range,
+mirror boundaries and a fixed truncation of 3 sigma. Sigma 0 disables smoothing.
+Kernel extent is determined automatically: sigma 3 uses approximately a 19 × 19
+neighborhood, rather than the previous 3 × 3 neighborhood. Review segmentation
+after this change because the smoothing strength and measured footprints differ.
 
-Trajectory positions correspond to centroids of segmented fluorescent regions.
+## Position measurements
 
-- Position is currently stored in pixels.
-- Region area is measured in pixels².
-- Physical spatial calibration is not yet applied.
-- Nominal time is calculated from frame number and video FPS.
-- Missing measurements remain missing and are not interpolated.
+### Manual points
 
-The measured fluorescent footprint depends on imaging conditions, thresholding, focus and object overlap. It should therefore not automatically be interpreted as the physical size of the bacterium.
+Manual mode records the user's clicked image coordinates directly.
+A segmented object is not required.
+
+Area and region label are unmeasured and exported as blank fields.
+The user is responsible for placing the point on the correct cell.
+
+### AUTO points
+
+AUTO uses the geometric centroid of a region's outer contours.
+Internal holes are treated as filled for this position calculation.
+
+When contours enclose zero area, such as for a single pixel or thin line,
+AUTO uses the foreground-pixel centroid instead.
+
+Coordinates retain fractional pixel precision. Region area remains the
+foreground pixel count, rather than contour-enclosed area.
+
+The `position_method` column identifies manual clicks, contour centroids
+and pixel-centroid fallbacks.
+
+### Missed detections
+
+AUTO continues playback when no eligible candidate is found, without
+adding a measurement for that frame. It keeps searching from the last
+successful position using the unchanged search radius.
+
+Space pauses or resumes playback. M enters manual correction.
+Missing frames remain missing; no predicted positions are inserted.
 
 ## Output and reproducibility
 
@@ -217,7 +244,7 @@ Passing the software tests verifies that the implemented functions behave accord
 - Spatial calibration is not yet included in exported measurements.
 - Biological tracking accuracy has not yet been validated against independently annotated trajectories.
 - Image processing currently runs synchronously with the GUI and may become slow for large videos.
-- MicroTracker currently tracks a selected individual object rather than an entire population.
+
 
 ## License
 
