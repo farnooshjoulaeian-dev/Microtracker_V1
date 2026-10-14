@@ -238,12 +238,6 @@ Passing the software tests verifies that the implemented functions behave accord
 
 ## Current limitations
 
-- Cell identity still requires human supervision.
-- Closely overlapping fluorescent objects may be segmented as a single region.
-- Fixed-threshold segmentation may require adjustment between datasets.
-- Spatial calibration is not yet included in exported measurements.
-- Biological tracking accuracy has not yet been validated against independently annotated trajectories.
-- Image processing currently runs synchronously with the GUI and may become slow for large videos.
 
 
 ## License
