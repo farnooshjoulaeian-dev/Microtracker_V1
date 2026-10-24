@@ -164,15 +164,13 @@ class GuiTests(unittest.TestCase):
         # Playback stops at the end of the video.
         self.assertFalse(w.playing)
 
-    def test_earlier_correction_becomes_anchor_and_can_be_undone(self):
+    def test_earlier_correction_becomes_anchor_and_removes_later_points(self):
         w = self.window
 
         # Record an AUTO point on frame 1.
         w.start_auto()
         w.timer.stop()
         w.advance_frame()
-
-        original_points = w.trajectory.points
 
         # Correct frame 0 using a different manual position.
         # The default policy removes later points.
@@ -185,13 +183,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(w.anchor["x_px"], 12.0)
         self.assertEqual(w.anchor["y_px"], 10.0)
 
-        # Undo restores the points that existed before the correction.
-        w.undo()
-
-        self.assertEqual(w.trajectory.points, original_points)
-
-        # A new correction can be followed by AUTO tracking again.
-        w.manual_click(12, 10)
+        # Continue AUTO tracking from the corrected anchor.
         w.start_auto()
         w.timer.stop()
         w.advance_frame()
@@ -215,10 +207,9 @@ class GuiTests(unittest.TestCase):
             w.sigma,
             w.playback_fps,
             w.frame_spin,
-            w.display_low,
-            w.display_high,
+            w.vmin,
+            w.vmax,
             w.display_mode,
-            w.correction_choice,
             w.view,
         ]
 
@@ -285,9 +276,8 @@ class GuiTests(unittest.TestCase):
         original_result = w.ensure_detection()
         original_points = w.trajectory.points
 
-        # Changing viewing contrast should reuse the detection result.
-        w.display_low.setValue(30)
-        w.display_high.setValue(180)
+        # Switching the display view should reuse the detection result.
+        w.display_mode.setCurrentText("Binary mask")
 
         current_result = w.ensure_detection()
 
@@ -300,36 +290,25 @@ class GuiTests(unittest.TestCase):
 
         self.assertEqual(w.trajectory.points, original_points)
 
-    def test_keep_future_policy_replaces_without_duplicate_points(self):
+    def test_clear_starts_a_fresh_session(self):
         w = self.window
-
-        # Record an AUTO point on frame 1.
+        w.vmin.setValue(10)
+        settings = w.settings()
         w.start_auto()
         w.timer.stop()
         w.advance_frame()
-
-        original_future_point = w.trajectory.get(1)
-
-        # Enter MANUAL and select "Keep later until replaced".
-        w.toggle_mode()
-        w.correction_choice.setCurrentIndex(1)
-        w.navigate(0)
-
-        # Correct frame 0 without removing the frame-1 point.
-        w.manual_click(12, 10)
-
-        self.assertEqual(len(w.trajectory.points), 2)
-        self.assertEqual(w.trajectory.get(0)["x_px"], 12.0)
-        self.assertEqual(w.trajectory.get(1), original_future_point)
-
-        # Retrack frame 1: replace its point instead of adding a duplicate.
-        w.start_auto()
-        w.timer.stop()
-        w.advance_frame()
-
-        self.assertEqual(self.stored_frames(), [0, 1])
-        self.assertEqual(w.trajectory.get(1)["source"], "auto")
-
+        with patch("main_window.Video", FakeVideo):
+            w.clear_track()
+        self.assertEqual(w.frame_index, 0)
+        self.assertEqual(w.mode, "MANUAL")
+        self.assertFalse(w.playing)
+        self.assertFalse(w.timer.isActive())
+        self.assertEqual(w.trajectory.points, [])
+        self.assertEqual(w.trajectory.events, [])
+        self.assertIsNone(w.anchor)
+        self.assertFalse(w.unsaved_changes)
+        self.assertEqual(w.settings(), settings)
+        self.assertFalse(hasattr(w, "undo"))
 
 # This runs the tests when the file is executed directly.
 # Test discovery also finds the methods inside GuiTests.
