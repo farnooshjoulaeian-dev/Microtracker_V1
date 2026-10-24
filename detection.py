@@ -23,6 +23,8 @@ class DetectionSettings:
     closing_radius_px: int = 0    # Morphological closing radius; 0 disables it
     min_area_px: int = 6          # Minimum AUTO region area, in pixels²
     max_area_px: int = 150        # Maximum AUTO region area, in pixels²
+    vmin_gray: float = 0.0        # Intensity mapped to black before thresholding
+    vmax_gray: float = 255.0      # Intensity mapped to white before thresholding
 
             
     def __post_init__(self):
@@ -33,6 +35,14 @@ class DetectionSettings:
         # Keep the threshold within the image intensity range.
         if not np.isfinite(self.threshold_gray) or not 0 <= self.threshold_gray <= 255:
             raise ValueError("Threshold must be between 0 and 255")
+
+        # Ordered intensity limits keep contrast stretching well-defined.
+        if not (
+            np.isfinite(self.vmin_gray)
+            and np.isfinite(self.vmax_gray)
+            and 0 <= self.vmin_gray < self.vmax_gray <= 255
+        ):
+            raise ValueError("Intensity limits must satisfy 0 <= vmin < vmax <= 255")
 
         # Closing requires a non-negative integer radius.
         if not isinstance(self.closing_radius_px, int) or self.closing_radius_px < 0:
@@ -90,10 +100,16 @@ def detect_frame(frame, settings=DetectionSettings()):
         mode="mirror",                 # Reflect at image boundaries
         truncate=3.0,                  # Extend to ±3 sigma; default is 4
     )
+    # Clip and rescale to 0–255 for thresholding; preserve the smoothed image.
+    clipped = np.clip(smoothed, settings.vmin_gray, settings.vmax_gray)
+    stretched = (
+        255.0 * (clipped - settings.vmin_gray)
+        / (settings.vmax_gray - settings.vmin_gray)
+    ).astype(np.uint8)
 
     # Create the foreground mask, with optional morphological closing.
     mask, _ = threshold_mask(
-        smoothed,
+        stretched,
         settings.threshold_gray,
         settings.closing_radius_px, #This can fill small holes and connect narrow gaps.
     )

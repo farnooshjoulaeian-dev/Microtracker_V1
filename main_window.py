@@ -107,6 +107,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sigma.setRange(0, 7)
         self.sigma.setSingleStep(0.1)
         self.sigma.setValue(3)
+
+        self.vmin = self.spin(0, 254, 0)
+        self.vmax = self.spin(1, 255, 255)
+
+        # Keep vmin strictly below vmax.
+        self.vmin.valueChanged.connect(
+            lambda value: self.vmax.setMinimum(value + 1)
+        )
+        self.vmax.valueChanged.connect(
+            lambda value: self.vmin.setMaximum(value - 1)
+        )
         self.min_area = self.spin(1, 1000000, 6)
         self.max_area = self.spin(6, 1000000, 150)
         self.min_area.setMaximum(150)
@@ -116,25 +127,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.playback_fps = QtWidgets.QDoubleSpinBox()
         self.playback_fps.setRange(0.1, 240)
         self.playback_fps.setValue(25)
-        for label, widget in [('Threshold (0–255)', self.threshold), ('Blur sigma (px)', self.sigma), ('Min area (pixels²)', self.min_area), ('Max area (pixels²)', self.max_area), ('Search radius (px)', self.radius), ('Playback FPS', self.playback_fps)]:
+        for label, widget in [
+            ('Threshold (0–255)', self.threshold),
+            ('Blur sigma (px)', self.sigma),
+            ('vmin (0–255)', self.vmin),
+            ('vmax (0–255)', self.vmax),
+            ('Min area (pixels²)', self.min_area),
+            ('Max area (pixels²)', self.max_area),
+            ('Search radius (px)', self.radius),
+            ('Playback FPS', self.playback_fps),
+        ]:
             form.addRow(label, widget)
         separator = QtWidgets.QLabel('Display settings — do not affect detection')
         separator.setWordWrap(True)
         form.addRow(separator)
         self.display_mode = QtWidgets.QComboBox()
         self.display_mode.addItems(['Overlay', 'Grayscale', 'Binary mask'])
-        self.display_low = self.spin(0, 254, 0)
-        self.display_high = self.spin(1, 255, 255)
-        self.display_low.valueChanged.connect(self.display_low_changed)
-        self.display_high.valueChanged.connect(self.display_high_changed)
         form.addRow('View', self.display_mode)
-        form.addRow('Display low', self.display_low)
-        form.addRow('Display high', self.display_high)
-        self.correction_choice = QtWidgets.QComboBox()
-        self.correction_choice.addItems(['Remove later; Undo available', 'Keep later until replaced'])
-        self.correction_choice.setToolTip('Applies when manually correcting an earlier frame.')
-        form.addRow(QtWidgets.QLabel('Correction behavior'))
-        form.addRow(self.correction_choice)
         hint = QtWidgets.QLabel(
             "M switches mode. Space plays/pauses.\n"
             "Left/Right navigate. Mouse wheel zooms.\n"
@@ -143,7 +152,6 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         hint.setWordWrap(True)
         form.addRow(hint)
-        controls_layout.addStretch()
         button_grid = QtWidgets.QGridLayout()
         actions = [('Load', self.choose_video, 'Load video'), ('Track', self.start_auto, 'Start AUTO tracking'), ('Play', self.toggle_play, 'Play/pause (Space)'), ('Save', self.save, 'Save CSV and session settings'), ('Undo', self.undo, 'Undo correction'), ('Clear', self.clear_track, 'Clear track'), ('Fit', self.fit_image, 'Fit image')]
         for index, (text, callback, tooltip) in enumerate(actions):
@@ -155,6 +163,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for column in range(4):
             button_grid.setColumnStretch(column, 1)
         controls_layout.addLayout(button_grid)
+        controls_layout.addStretch()
         middle.addWidget(controls)
         self.view = FrameView()
         middle.addWidget(self.view, 1)
@@ -171,12 +180,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.slider.valueChanged.connect(self.navigate)
         self.frame_spin.valueChanged.connect(self.navigate)
         self.view.clicked.connect(self.manual_click)
-        for widget in (self.threshold, self.sigma, self.min_area, self.max_area, self.radius):
+        for widget in (self.threshold, self.sigma, self.vmin, self.vmax,self.min_area, 
+                       self.max_area, self.radius,):
             widget.valueChanged.connect(self.processing_changed)
-        for widget in (self.display_low, self.display_high):
-            widget.valueChanged.connect(self.render)
+
         self.display_mode.currentIndexChanged.connect(self.render)
-        self.correction_choice.currentIndexChanged.connect(self.correction_changed)
         self.shortcuts = []
         for key, callback in [('M', self.toggle_mode), ('Space', self.toggle_play), ('Right', self.step_forward), ('Left', self.step_back), ('Ctrl+Z', self.undo)]:
             self.shortcuts.append(QtWidgets.QShortcut(QtGui.QKeySequence(key), self, activated=callback))
@@ -186,14 +194,6 @@ class MainWindow(QtWidgets.QMainWindow):
             widget.lineEdit().installEventFilter(self)
         for widget in self.findChildren(QtWidgets.QComboBox):
             widget.installEventFilter(self)
-
-    def display_low_changed(self, value):
-        """Keep the upper display bound above the lower bound."""
-        self.display_high.setMinimum(value + 1)
-
-    def display_high_changed(self, value):
-        """Keep the lower display bound below the upper bound."""
-        self.display_low.setMaximum(value - 1)
 
     @staticmethod
     def spin(low, high, value):
@@ -213,8 +213,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def settings(self):
         """Read the controls and create the current detection settings."""
-        return DetectionSettings(blur_sigma_px=self.sigma.value(), threshold_gray=self.threshold.value(), min_area_px=self.min_area.value(), max_area_px=self.max_area.value())
-
+        return DetectionSettings(
+            blur_sigma_px=self.sigma.value(),
+            vmin_gray=self.vmin.value(),
+            vmax_gray=self.vmax.value(),
+            threshold_gray=self.threshold.value(),
+            min_area_px=self.min_area.value(),
+            max_area_px=self.max_area.value(),
+            
+        )
     def note(self, text, event=None):
         """Store the latest message and optional event, then update the status bar."""
         self.last_note = text
@@ -460,18 +467,10 @@ class MainWindow(QtWidgets.QMainWindow):
         """Invalidate cached detection after a parameter change. Existing points retain their settings."""
         if not self.video:
             return
-        self.pause()
+        #self.pause()
         self.result = None
         self.note('Detection settings changed; existing points retain their original settings.', {'event': 'settings_changed', 'settings': asdict(self.settings()), 'search_radius_px': self.radius.value()})
         self.refresh_display()
-
-    def correction_changed(self):
-        """Read whether an earlier correction should remove later points."""
-        if self.correction_choice.currentIndex() == 0:
-            self.correction_policy = 'remove_future'
-        else:
-            self.correction_policy = 'keep_future'
-        self.note(f'Correction policy: {self.correction_policy}.', {'event': 'correction_policy', 'policy': self.correction_policy})
 
     def undo(self):
         """Restore the last saved trajectory state and refresh the display."""
@@ -511,8 +510,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.frame_bgr is None:
             return
         result = self.ensure_detection()
-        low, high = (self.display_low.value(), self.display_high.value())
-        display = np.clip(255 * (result.gray.astype(float) - low) / (high - low), 0, 255).astype(np.uint8)
+        # Display original grayscale; contrast stretching is used only for thresholding.
+        display = result.gray
         if self.display_mode.currentText() == 'Binary mask':
             display = result.mask.astype(np.uint8) * 255
         rgb = cv2.cvtColor(display, cv2.COLOR_GRAY2RGB)
@@ -560,7 +559,7 @@ class MainWindow(QtWidgets.QMainWindow):
         information['current_detection_settings'] = asdict(self.settings())
         information['current_search_radius_px'] = self.radius.value()
         information['correction_policy'] = self.correction_policy
-        information['display'] = {'low': self.display_low.value(), 'high': self.display_high.value(), 'view': self.display_mode.currentText()}
+        information['display'] = {'view': self.display_mode.currentText()}
         information['playback_fps'] = self.playback_fps.value()
         information['dependencies'] = {'opencv': cv2.__version__, 'numpy': np.__version__, 'skimage': skimage.__version__, 'qt': QtCore.QT_VERSION_STR, 'pyqt': QtCore.PYQT_VERSION_STR}
         return information
