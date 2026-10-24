@@ -77,6 +77,10 @@ Video files are not included in the repository.
 
 The application starts in **MANUAL** mode.
 
+**Clear** reloads the current video at frame 0, pauses playback and starts a fresh
+tracking session. It removes all trajectory points and session history, with no
+Undo. Detection parameters are retained; saved files are unchanged.
+
 Press **M** to switch between MANUAL and AUTO tracking.
 
 AUTO selects the nearest eligible object within the search radius. If none is found, playback continues without adding a measurement, and subsequent frames are searched from the last successful position. Missing frames remain missing.
@@ -92,7 +96,7 @@ The user can pause with **Space** or switch to **MANUAL** mode with **M** for co
 | Frame slider/input | Seek to a frame |
 | Mouse wheel | Zoom |
 | `Fit` | Restore full-frame view |
-| `Undo` | Restore the previous trajectory state |
+| `Clear` | Restart the current video at frame 0 with an empty trajectory |
 
 ## Detection and tracking
 

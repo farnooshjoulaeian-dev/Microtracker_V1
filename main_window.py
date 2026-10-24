@@ -153,7 +153,7 @@ class MainWindow(QtWidgets.QMainWindow):
         hint.setWordWrap(True)
         form.addRow(hint)
         button_grid = QtWidgets.QGridLayout()
-        actions = [('Load', self.choose_video, 'Load video'), ('Track', self.start_auto, 'Start AUTO tracking'), ('Play', self.toggle_play, 'Play/pause (Space)'), ('Save', self.save, 'Save CSV and session settings'), ('Undo', self.undo, 'Undo correction'), ('Clear', self.clear_track, 'Clear track'), ('Fit', self.fit_image, 'Fit image')]
+        actions = [('Load', self.choose_video, 'Load video'), ('Track', self.start_auto, 'Start AUTO tracking'), ('Play', self.toggle_play, 'Play/pause (Space)'), ('Save', self.save, 'Save CSV and session settings'), ('Clear', self.clear_track, 'Restart the current video from frame 0'), ('Fit', self.fit_image, 'Fit image')]
         for index, (text, callback, tooltip) in enumerate(actions):
             button = QtWidgets.QPushButton(text)
             button.setToolTip(tooltip)
@@ -186,7 +186,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.display_mode.currentIndexChanged.connect(self.render)
         self.shortcuts = []
-        for key, callback in [('M', self.toggle_mode), ('Space', self.toggle_play), ('Right', self.step_forward), ('Left', self.step_back), ('Ctrl+Z', self.undo)]:
+        for key, callback in [('M', self.toggle_mode), ('Space', self.toggle_play), ('Right', self.step_forward), ('Left', self.step_back)]:
             self.shortcuts.append(QtWidgets.QShortcut(QtGui.QKeySequence(key), self, activated=callback))
             self.shortcuts[-1].setAutoRepeat(False)
         for widget in self.findChildren(QtWidgets.QAbstractSpinBox):
@@ -459,7 +459,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.note(message, event)
         if later_count > 0:
             if self.correction_policy == 'remove_future':
-                message = f'Removed {later_count} later points. Undo can restore them. M resumes AUTO.'
+                message = f'Removed {later_count} later points. M resumes AUTO.'
                 self.note(message)
         self.refresh_display()
 
@@ -472,26 +472,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.note('Detection settings changed; existing points retain their original settings.', {'event': 'settings_changed', 'settings': asdict(self.settings()), 'search_radius_px': self.radius.value()})
         self.refresh_display()
 
-    def undo(self):
-        """Restore the last saved trajectory state and refresh the display."""
-        self.pause()
-        if self.trajectory.undo():
-            self.unsaved_changes = True
-            self.anchor = self.trajectory.get(self.frame_index)
-            self.note('Restored trajectory before the last manual correction or clear.')
-            self.refresh_display()
-        else:
-            self.note('Nothing to undo.')
-
     def clear_track(self):
-        """Clear the trajectory and continuation point, with Undo support."""
-        if self.trajectory.points:
-            self.unsaved_changes = True
-        self.pause()
-        self.trajectory.clear()
-        self.anchor = None
-        self.note('Track cleared; Undo can restore it. Switch to MANUAL to select a new cell.')
-        self.refresh_display()
+        """Reload the current video at frame 0 with a fresh tracking session."""
+        if not self.video:
+            return
+        self.load_video(self.video.path)
 
     def fit_image(self):
         """Fit the complete image inside the view."""
