@@ -105,6 +105,8 @@ Grayscale conversion
     ↓
 Gaussian smoothing
     ↓
+Clip intensities to [vmin, vmax] and rescale to 0–255
+    ↓
 Intensity thresholding
     ↓
 Connected-component segmentation
@@ -116,6 +118,19 @@ Nearest-neighbour linking
 Trajectory
 ```
 
+Thresholding uses the contrast-stretched image. After smoothing, intensities
+at or below `vmin` become 0, and intensities at or above `vmax` become 255.
+Values between them are linearly rescaled to 0–255. The limits must satisfy
+`0 ≤ vmin < vmax ≤ 255`. The grayscale display keeps the original intensities.
+
+Parameters can be changed while the video plays. Detection updates immediately,
+and subsequent AUTO tracking uses the new settings. Existing trajectory points
+keep their original measurements and settings.
+
+Playback FPS controls viewing speed only. Measurement timestamps use the source
+video's reported FPS, assuming a constant frame rate. If source FPS is unavailable,
+timestamps are left blank.
+
 Automatic tracking currently uses Euclidean distance only. It does not use motion prediction, directional persistence or automatic gap filling.
 
 All segmented regions are retained so that rejected objects can still be inspected or selected manually.
@@ -126,11 +141,13 @@ All segmented regions are retained so that rejected objects can still be inspect
 |---|---:|
 | Gaussian sigma | 3 px (GUI range 0–7) |
 | Gaussian truncation | 3 sigma |
+| vmin | 0 |
+| vmax | 255 |
 | Intensity threshold | 40 / 255 |
 | Accepted area | 6–150 px² |
 | Search radius | 20 px |
 
-These values are starting parameters and should be adjusted according to image quality and acquisition conditions.
+These values are starting parameters and should be adjusted according to image quality and acquisition conditions. The default vmin/vmax limits preserve the intensity range.
 
 Smoothing uses `skimage.filters.gaussian` with preserved 0–255 intensity range,
 mirror boundaries and a fixed truncation of 3 sigma. Sigma 0 disables smoothing.
