@@ -15,7 +15,6 @@ import numpy as np
 from skimage.filters import gaussian  
 from segmentation import threshold_mask, measure_regions  
 
-
 @dataclass(frozen=True)  # Prevent changing settings after creation
 class DetectionSettings:
     blur_sigma_px: float = 3.0    # Gaussian smoothing scale in pixels
@@ -67,6 +66,7 @@ class DetectionResult:
     mask: np.ndarray       # Binary foreground mask
     labels: np.ndarray     # Region labels; 0 represents background
     regions: list          # Measurements and AUTO eligibility for every region
+    
 
 
 def detect_frame(frame, settings=DetectionSettings()):
@@ -75,7 +75,7 @@ def detect_frame(frame, settings=DetectionSettings()):
     Coordinates refer to the supplied image. Area-rejected regions remain
     available for manual selection. Labels are specific to this frame.
     """
-
+    
     # Reject empty images, incorrect types and unsupported intensity formats.
     if (
         not isinstance(frame, np.ndarray)
@@ -114,7 +114,7 @@ def detect_frame(frame, settings=DetectionSettings()):
         settings.closing_radius_px, #This can fill small holes and connect narrow gaps.
     )
 
-    # Label connected regions and measure their area and centroid.
+    # Measure each connected foreground object without splitting it.
     labels, regions = measure_regions(mask)
 
     # Mark AUTO eligibility without deleting any segmented region.

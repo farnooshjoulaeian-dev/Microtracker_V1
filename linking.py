@@ -1,6 +1,6 @@
 """Choose AUTO detections by distance.
 
-No motion prediction is used.
+Candidate matching uses area and distance. A helper predicts short gaps.
 The older segmented-click helper is retained for existing tests.
 """
 
@@ -28,10 +28,25 @@ def candidate_order(candidate):
     return distance, label
 
 
-def link_nearest(regions, previous_position_px, search_radius_px=20):
-    """Choose the nearest area-accepted region within the search radius."""
+def link_nearest(
+    regions,
+    previous_position_px,
+    search_radius_px=20,
+    previous_area_px=None,
+    max_area_change=0.30,       #0.30 means the candidate’s area may be up to 30% smaller or larger than the previous measured area.
+):
+    
+    """Choose by area similarity, then distance, inside the search radius."""
 
     x, y = previous_position_px
+    # The previous area must be positive when it is available.
+    if previous_area_px is not None:
+        if not isfinite(previous_area_px) or previous_area_px <= 0:
+            raise ValueError("Previous area must be positive")
+
+    # The allowed area change must be zero or positive.
+    if not isfinite(max_area_change) or max_area_change < 0:
+        raise ValueError("Allowed area change must be zero or positive")
 
     # Check the previous position and search radius.
     if not isfinite(x):
@@ -67,21 +82,47 @@ def link_nearest(regions, previous_position_px, search_radius_px=20):
     # Equal distances are ordered by frame-local region label.
     candidates.sort(key=candidate_order)
 
-    # Collect regions that pass the area filter.
-    accepted = []
+# Keep objects that pass the area limits and are inside the radius.
+    nearby = []
 
     for candidate in candidates:
-        if candidate["accepted_for_auto"]:
-            accepted.append(candidate)
+        if candidate["accepted_for_auto"] and candidate["within_radius"]:
+            nearby.append(candidate)
 
-    # Select the nearest accepted region if it is within the radius.
-    if len(accepted) > 0:
-        nearest = accepted[0]
+    if nearby:
+        # Without a previous measured area, choose the nearest object.
+        # The candidates are already sorted by distance.
+        if previous_area_px is None:
+            return LinkResult(nearby[0], "matched", candidates)
 
-        if nearest["within_radius"]:
-            return LinkResult(nearest, "matched", candidates)
+        similar = []
 
-    # No match: check whether any segmented region is nearby.
+        for candidate in nearby:
+            area = candidate["area_px"]
+
+            # Compare this area with the previous measured area.
+            change = abs(area - previous_area_px) / previous_area_px
+            candidate["relative_area_change"] = change
+
+            if change <= max_area_change:
+                similar.append(candidate)
+
+        # Nearby objects exist, but none has a similar enough area.
+        if not similar:
+            return LinkResult(None, "area_change_too_large", candidates)
+
+        # Choose the closest area match.
+        # If area differences are equal, choose the nearest position.
+        similar.sort(
+            key=lambda candidate: (
+                candidate["relative_area_change"],
+                candidate["distance_px"],
+                candidate["label"],
+            )
+        )
+
+        return LinkResult(similar[0], "matched", candidates)
+    
     nearby_region_found = False
 
     for candidate in candidates:
@@ -175,3 +216,33 @@ def select_region_at_click(labels, regions, x, y, radius_px=5):
             return dict(region)
 
     return None
+
+
+def predict_position(first, last, frame, max_gap_frames=5):
+    """Estimate a position from two successful detections."""
+
+    # We need two positions to estimate movement.
+    if first is None or last is None:
+        return None
+
+    # Count frames since the last successful detection.
+    gap = frame - last["frame"]
+
+    # Predict only a short distance into the future.
+    if gap <= 0 or gap > max_gap_frames:
+        return None
+
+    frame_difference = last["frame"] - first["frame"]
+
+    if frame_difference <= 0:
+        return None
+
+    # Movement in pixels per video frame.
+    vx = (last["x_px"] - first["x_px"]) / frame_difference
+    vy = (last["y_px"] - first["y_px"]) / frame_difference
+
+    # Continue the same movement.
+    x = last["x_px"] + vx * gap
+    y = last["y_px"] + vy * gap
+
+    return x, y

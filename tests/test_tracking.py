@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 
 from detection import DetectionSettings
-from linking import link_nearest, select_region_at_click
+from linking import link_nearest, select_region_at_click, predict_position
 from trajectory import Trajectory
 
 
@@ -32,6 +32,38 @@ class LinkingTests(unittest.TestCase):
     def test_multiple_candidates_choose_nearest_without_prediction(self):
         result = link_nearest([region(1, x=5), region(2, x=2)], (0, 12))
         self.assertEqual(result.selected["label"], 2)
+
+    def test_single_nearby_candidate_must_pass_area_change(self):
+        result = link_nearest([region(x=1, area=60)], (0, 12),
+                              previous_area_px=40, max_area_change=0.30)
+        self.assertIsNone(result.selected)
+        self.assertEqual(result.reason, "area_change_too_large")
+
+    def test_area_match_wins_only_inside_radius_and_area_limits(self):
+        candidates = [region(1, x=1, area=48), region(2, x=5, area=42),
+                      region(3, x=30, area=40),
+                      region(4, x=2, area=40, accepted=False)]
+        result = link_nearest(candidates, (0, 12), 20,
+                              previous_area_px=40, max_area_change=0.30)
+        self.assertEqual(result.selected["label"], 2)
+
+    def test_area_tolerance_endpoints_and_distance_tie_break(self):
+        for area in (28, 52):
+            result = link_nearest([region(x=1, area=area)], (0, 12),
+                                  previous_area_px=40, max_area_change=0.30)
+            self.assertIsNotNone(result.selected)
+        result = link_nearest([region(1, x=5, area=38), region(2, x=2, area=42)],
+                              (0, 12), previous_area_px=40)
+        self.assertEqual(result.selected["label"], 2)
+
+    def test_prediction_uses_frame_intervals_and_has_a_gap_limit(self):
+        first = {"frame": 0, "x_px": 2.0, "y_px": 4.0}
+        last = {"frame": 2, "x_px": 6.0, "y_px": 2.0}
+        self.assertEqual(predict_position(first, last, 3), (8.0, 1.0))
+        self.assertEqual(predict_position(first, last, 5), (12.0, -1.0))
+        self.assertIsNone(predict_position(first, last, 6))
+        self.assertIsNone(predict_position(None, last, 3))
+        self.assertIsNone(predict_position(first, last, 2))
 
     def test_manual_selection_bypasses_area_rejection_and_checks_bounds(self):
         labels = np.zeros((20, 20), dtype=int)
@@ -71,6 +103,17 @@ class TrajectoryTests(unittest.TestCase):
         self.assertEqual(self.traj.points, [])
         self.assertTrue(self.traj.undo())
         self.assertEqual(len(self.traj.points), 2)
+
+    def test_estimated_auto_position_has_no_fabricated_area_or_label(self):
+        point = region()
+        point.update(area_px=None, label=None, area_status="not_measured")
+        with self.assertRaises(ValueError):
+            self.traj.record(1, point, "auto", self.settings, 20)
+        stored = self.traj.record(1, point, "auto", self.settings, 20, predicted=True)
+        self.assertEqual(stored["source"], "auto")
+        self.assertIsNone(stored["area_px"])
+        self.assertIsNone(stored["label"])
+        self.assertIsNone(stored["position_method"])
 
     def test_csv_records_point_settings_and_json_metadata(self):
         self.add(0, "manual", time_s=0)

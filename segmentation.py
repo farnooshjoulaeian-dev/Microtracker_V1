@@ -8,7 +8,6 @@ import cv2
 import numpy as np
 from skimage import filters, measure, morphology
 
-
 def threshold_mask(image, threshold=None, closing_radius_px=0):
     """Create a foreground mask and return the threshold used."""
 
@@ -98,7 +97,7 @@ def measure_regions(mask):
     if mask.dtype != np.bool_:
         raise ValueError("Expected a boolean mask")
 
-    # Pixels sharing an edge belong to the same region.
+    # Pixels sharing an edge belong to the same object.
     labels = measure.label(mask, connectivity=1)
 
     rows = []

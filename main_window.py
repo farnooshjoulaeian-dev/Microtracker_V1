@@ -8,7 +8,7 @@ import numpy as np
 import skimage
 from PyQt5 import QtCore, QtGui, QtWidgets
 from detection import DetectionSettings, detect_frame
-from linking import link_nearest
+from linking import link_nearest, predict_position
 from trajectory import Trajectory
 from video import Video
 
@@ -83,6 +83,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.last_note = 'Load a video, then click a bacterium in MANUAL.'
         self.session_started = datetime.now(timezone.utc).isoformat()
         self.correction_policy = 'remove_future'
+        self.max_area_change = 0.15  # Allow up to 15% area change.
+        self.max_prediction_gap_frames = 3  # Stop predicting after three missing frames.
         self.unsaved_changes = False
         self.timer = QtCore.QTimer(self)
         self.timer.setSingleShot(True)
@@ -147,7 +149,6 @@ class MainWindow(QtWidgets.QMainWindow):
         hint = QtWidgets.QLabel(
             "M switches mode. Space plays/pauses.\n"
             "Left/Right navigate. Mouse wheel zooms.\n"
-            "Cyan: accepted regions; red: rejected.\n"
             "Manual clicks record your selected position."
         )
         hint.setWordWrap(True)
@@ -385,7 +386,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.timer.start(max(1, round(delay)))
 
     def advance_frame(self):
-        """Advance playback. AUTO misses leave a gap and retain the last successful anchor."""
+        """Advance playback and predict positions across short AUTO gaps."""
         if not self.video:
             return
         if self.frame_index >= self.video.n_frames - 1:
@@ -401,9 +402,64 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if self.mode == 'AUTO':
             result = self.ensure_detection()
-            linked = link_nearest(result.regions, (previous['x_px'], previous['y_px']), self.radius.value())
+            # Keep actual positions only; predictions must not set the velocity or area.
+            measured = []
+            for point in self.trajectory.points:
+                if point["frame"] >= self.frame_index:
+                    continue
+                if point["source"] == "manual" or point["area_px"] is not None:
+                    measured.append(point)
+
+            last_measured = measured[-1] if measured else None
+            previous_area = None
+            if last_measured is not None:
+                previous_area = last_measured.get("area_px")
+
+                # Re-establish the area after detection settings change.
+                for name, value in asdict(self.settings()).items():
+                    if last_measured.get(name) != value:
+                        previous_area = None
+                        break
+
+            linked = link_nearest(
+                result.regions,
+                (previous["x_px"], previous["y_px"]),
+                search_radius_px=self.radius.value(),
+                previous_area_px=previous_area,
+                max_area_change=self.max_area_change,
+            )
             if linked.selected is None:
                 self.note(f'AUTO: no match at frame {self.frame_index}: {linked.reason}. Playback continues; M enters MANUAL.', {'event': 'auto_miss', 'reason': linked.reason, 'settings': asdict(self.settings()), 'search_radius_px': self.radius.value(), 'candidates': linked.candidates})
+
+                prediction = None
+                if len(measured) >= 2:
+                    prediction = predict_position(
+                        measured[-2], measured[-1], self.frame_index,
+                        max_gap_frames=self.max_prediction_gap_frames,
+                    )
+
+                if prediction is not None:
+                    x, y = prediction
+                    height, width = self.frame_bgr.shape[:2]
+
+                    # Do not add a predicted position outside the image.
+                    if 0 <= x < width and 0 <= y < height:
+                        point = {
+                            "x_px": x,
+                            "y_px": y,
+                            "area_px": None,
+                            "label": None,
+                            "area_status": "not_measured",
+                            "distance_px": float(np.hypot(
+                                x - previous["x_px"], y - previous["y_px"],
+                            )),
+                        }
+                        self.anchor = self.record_point(point, "auto", predicted=True)
+                        gap = self.frame_index - last_measured["frame"]
+                        self.last_note = (
+                            f'Frame {self.frame_index}: continuing across gap '
+                            f'{gap}/{self.max_prediction_gap_frames}.'
+                        )
             else:
                 self.anchor = self.record_point(linked.selected, 'auto')
                 self.last_note = f"Frame {self.frame_index}: area {linked.selected['area_px']} px²; step {linked.selected['distance_px']:.2f} px."
@@ -414,14 +470,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.pause()
             self.note('End of video.')
 
-    def record_point(self, region, source):
+    def record_point(self, region, source, predicted=False):
         """Store a point with its time, settings and correction policy."""
         if self.video.fps:
             time_s = self.frame_index / self.video.fps
         else:
             time_s = None
         self.unsaved_changes = True
-        return self.trajectory.record(self.frame_index, region, source, self.settings(), self.radius.value(), time_s=time_s, truncate_future=source == 'manual' and self.correction_policy == 'remove_future')
+        return self.trajectory.record(self.frame_index, region, source, self.settings(), self.radius.value(), time_s=time_s, truncate_future=source == 'manual' and self.correction_policy == 'remove_future', predicted=predicted)
 
     def manual_click(self, x, y):
         """Store a valid raw click as a manual position, without measuring region area or label."""
@@ -500,14 +556,24 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.display_mode.currentText() == 'Binary mask':
             display = result.mask.astype(np.uint8) * 255
         rgb = cv2.cvtColor(display, cv2.COLOR_GRAY2RGB)
+        
         if self.display_mode.currentText() == 'Overlay':
-            accepted_lookup = np.zeros(len(result.regions) + 1, dtype=bool)
             for region in result.regions:
-                accepted_lookup[region['label']] = region['accepted_for_auto']
-            accepted_mask = accepted_lookup[result.labels]
-            for mask, color in ((accepted_mask, (0, 220, 220)), (result.mask & ~accepted_mask, (255, 0, 0))):
-                contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+                # Select only this connected region.
+                region_mask = result.labels == region['label']
+
+                color = (0, 220, 220)  # Cyan for every region
+
+                contours, _ = cv2.findContours(
+                    region_mask.astype(np.uint8),
+                    cv2.RETR_EXTERNAL,
+                    cv2.CHAIN_APPROX_SIMPLE,
+                )
+
                 cv2.drawContours(rgb, contours, -1, color, 1)
+            
+        
+        
         points = []
         for p in self.trajectory.points:
             if p['frame'] <= self.frame_index:
@@ -539,10 +605,13 @@ class MainWindow(QtWidgets.QMainWindow):
         information['frame_indexing'] = 'zero-based'
         information["manual_position_rule"] = "Raw image click coordinates"
         information["auto_position_rule"] = ("Outer-contour centroid; pixel-centroid fallback " "when contour area is zero")
-        information['prediction'] = 'none'
+        information['prediction'] = 'constant velocity from the last two actual positions'
+        information['max_prediction_gap_frames'] = self.max_prediction_gap_frames
         information['point_units'] = 'pixels; area is foreground pixel count'
         information['current_detection_settings'] = asdict(self.settings())
         information['current_search_radius_px'] = self.radius.value()
+        information['max_relative_area_change'] = self.max_area_change
+        information['candidate_selection'] = 'closest area, then distance; nearest distance when no comparable area exists'
         information['correction_policy'] = self.correction_policy
         information['display'] = {'view': self.display_mode.currentText()}
         information['playback_fps'] = self.playback_fps.value()

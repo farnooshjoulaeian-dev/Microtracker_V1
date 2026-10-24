@@ -2,7 +2,7 @@
 
 MicroTracker is a semi-automatic single-cell tracking application for a microscopy videos. It combines simple distance-based automatic linking with manual supervision and trajectory correction through a PyQt graphical interface.
 
-The software records the user's clicked coordinates for manual points and contour centroids for AUTO points. When contour area is zero, AUTO uses the foreground-pixel centroid instead. It does not insert predicted positions or interpolate missing frames.
+The software records the user's clicked coordinates for manual points and contour centroids for AUTO points. When contour area is zero, AUTO uses the foreground-pixel centroid instead. Short missing intervals can be filled with constant-velocity predictions. The software does not interpolate between future and past detections.
 
 ## Features
 
@@ -83,7 +83,7 @@ Undo. Detection parameters are retained; saved files are unchanged.
 
 Press **M** to switch between MANUAL and AUTO tracking.
 
-AUTO selects the nearest eligible object within the search radius. If none is found, playback continues without adding a measurement, and subsequent frames are searched from the last successful position. Missing frames remain missing.
+AUTO checks distance and area similarity. If no suitable object is found, it can continue the same track with predicted positions for up to three frames after the last actual position. It then leaves gaps until a match is found or the user corrects the track.
 
 The user can pause with **Space** or switch to **MANUAL** mode with **M** for correction.
 ## Controls
@@ -117,7 +117,7 @@ Connected-component segmentation
     ↓
 Area filtering
     ↓
-Nearest-neighbour linking
+Area and distance matching
     ↓
 Trajectory
 ```
@@ -135,7 +135,7 @@ Playback FPS controls viewing speed only. Measurement timestamps use the source
 video's reported FPS, assuming a constant frame rate. If source FPS is unavailable,
 timestamps are left blank.
 
-Automatic tracking currently uses Euclidean distance only. It does not use motion prediction, directional persistence or automatic gap filling.
+Candidates must be inside the search radius and pass the area limits. When a comparable previous area exists, a candidate must also be within ±15% of that area. AUTO chooses the closest area match, then distance. Without a comparable area, it chooses the nearest eligible object.
 
 All segmented regions are retained so that rejected objects can still be inspected or selected manually.
 
@@ -185,12 +185,22 @@ and pixel-centroid fallbacks.
 
 ### Missed detections
 
-AUTO continues playback when no eligible candidate is found, without
-adding a measurement for that frame. It keeps searching from the last
-successful position using the unchanged search radius.
+When no candidate passes the tracking checks, the last two actual positions are
+used to estimate movement in pixels per video frame. AUTO can add predicted
+positions for up to three frames after the last actual position. Predictions are
+not used to estimate velocity or update the measured area reference.
+
+Predicted positions use the same track, color and AUTO source value. Their area,
+region label and position method are left blank because no object was measured.
+Timestamps still use the source video's FPS. Session metadata records the
+prediction method and gap limit.
+
+Prediction requires two actual positions and stays inside the image. When those
+conditions fail or the gap exceeds three frames, no point is added. AUTO continues
+searching from the last stored position. A turn or stop during a gap can make
+predictions and calculated speeds inaccurate.
 
 Space pauses or resumes playback. M enters manual correction.
-Missing frames remain missing; no predicted positions are inserted.
 
 ## Output and reproducibility
 

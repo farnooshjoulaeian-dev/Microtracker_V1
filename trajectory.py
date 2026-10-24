@@ -1,6 +1,6 @@
 """Store one trajectory, support Undo, and export measurements.
 
-A trajectory contains measured positions from different video frames.
+A trajectory contains measured and estimated positions from video frames.
 Each frame can have only one stored point.
 
 This file stores data. It does not detect cells or control the GUI.
@@ -52,6 +52,7 @@ class Trajectory:
              search_radius_px,
              time_s = None,
              truncate_future = False,
+             predicted = False,
 
      ) :
          
@@ -64,6 +65,7 @@ class Trajectory:
         search_radius_px: tracking search radius, in pixels.
         time_s: measurement time in seconds, or None if unavailable.
         truncate_future: whether to remove points after this frame.
+        predicted: allow an estimated AUTO position without measured area or label.
         """
 
 
@@ -86,8 +88,13 @@ class Trajectory:
             raise ValueError("Value must be finite")
         
 
-         # AUTO points must come from a measured region.
-        if source == "auto":
+        # Estimates have no measured region. Keep them in the same AUTO track.
+        if predicted:
+            if source != "auto" or area is not None or label is not None:
+                raise ValueError("Predicted AUTO points must have no measured area or label")
+
+        # Ordinary AUTO points must come from a measured region.
+        if source == "auto" and not predicted:
             if area is None:
                 raise ValueError("AUTO points need a measured area")
 

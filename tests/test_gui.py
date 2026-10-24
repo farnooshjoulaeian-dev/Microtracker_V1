@@ -112,15 +112,19 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(w.frame_index, 1)
         self.assertEqual(w.anchor["x_px"], 15.5)
 
-        # Frame 2 is blank: keep playing without adding a measurement.
+        # Frame 2 is blank: continue the track with a predicted position.
         w.advance_frame()
 
         self.assertEqual(w.frame_index, 2)
         self.assertEqual(w.mode, "AUTO")
         self.assertTrue(w.playing)
-        self.assertEqual(w.anchor["frame"], 1)
-        self.assertEqual(self.stored_frames(), [0, 1])
-        self.assertIn("no_segmented_regions", w.last_note)
+        self.assertEqual(w.anchor["frame"], 2)
+        self.assertEqual(self.stored_frames(), [0, 1, 2])
+        self.assertIsNone(w.anchor["area_px"])
+        self.assertEqual(w.anchor["source"], "auto")
+        self.assertAlmostEqual(w.anchor["x_px"], 18.0)
+        self.assertEqual(w.anchor["time_s"], 2 / 25)
+        self.assertIn("gap 1/3", w.last_note)
 
         # Test the playback function used by Space: pause, then resume.
         w.toggle_play()
@@ -136,7 +140,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(w.frame_index, 3)
         self.assertEqual(w.anchor["frame"], 3)
         self.assertEqual(w.anchor["x_px"], 19.5)
-        self.assertEqual(self.stored_frames(), [0, 1, 3])
+        self.assertEqual(self.stored_frames(), [0, 1, 2, 3])
 
         # Enter MANUAL and replace frame 3 with a raw click.
         w.toggle_mode()
@@ -146,7 +150,7 @@ class GuiTests(unittest.TestCase):
 
         w.manual_click(19, 11)
 
-        self.assertEqual(self.stored_frames(), [0, 1, 3])
+        self.assertEqual(self.stored_frames(), [0, 1, 2, 3])
 
         corrected_point = w.trajectory.get(3)
         self.assertEqual(corrected_point["source"], "manual")
@@ -158,7 +162,7 @@ class GuiTests(unittest.TestCase):
         w.timer.stop()
         w.advance_frame()
 
-        self.assertEqual(self.stored_frames(), [0, 1, 3, 4])
+        self.assertEqual(self.stored_frames(), [0, 1, 2, 3, 4])
         self.assertEqual(w.mode, "AUTO")
 
         # Playback stops at the end of the video.
@@ -289,6 +293,58 @@ class GuiTests(unittest.TestCase):
         w.navigate(0)
 
         self.assertEqual(w.trajectory.points, original_points)
+
+    def test_prediction_stops_after_three_frames_and_uses_actual_positions(self):
+        w = self.window
+        blank = np.zeros((40, 60, 3), dtype=np.uint8)
+        w.video.frames[2:] = [blank.copy() for _ in range(5)]
+        w.video.n_frames = 7
+        w.start_auto()
+        w.timer.stop()
+        w.advance_frame()
+        first = w.trajectory.get(0)
+        last = w.trajectory.get(1)
+        from linking import predict_position
+        with patch("main_window.predict_position", wraps=predict_position) as predict:
+            for frame in range(2, 6):
+                w.advance_frame()
+                self.assertEqual(predict.call_args.args[:2], (first, last))
+        self.assertEqual(self.stored_frames(), [0, 1, 2, 3, 4])
+        self.assertIsNone(w.trajectory.get(5))
+        self.assertTrue(w.playing)
+        self.assertEqual(w.anchor["frame"], 4)
+
+    def test_prediction_keeps_last_measured_area_for_matching(self):
+        w = self.window
+        # Frame 3 contains a larger object that must fail area comparison.
+        w.video.frames[3][:] = 0
+        w.video.frames[3][9:15, 16:22] = 120
+        w.start_auto()
+        w.timer.stop()
+        w.advance_frame()  # Actual area: 16.
+        w.advance_frame()  # Prediction: no measured area.
+        w.advance_frame()  # The area-36 object must not be accepted.
+        self.assertIsNone(w.trajectory.get(3)["area_px"])
+        misses = [event for event in w.trajectory.events if event["event"] == "auto_miss"]
+        self.assertEqual(misses[-1]["reason"], "area_change_too_large")
+
+    def test_prediction_requires_two_actual_positions_and_stays_inside_image(self):
+        w = self.window
+        w.video.frames[1][:] = 0
+        w.start_auto()
+        w.timer.stop()
+        w.advance_frame()
+        self.assertEqual(self.stored_frames(), [0])
+
+        # Restore frame 1, obtain an actual position, then reject an outside estimate.
+        w.video.frames[1][10:14, 14:18] = 120
+        w.navigate(0)
+        w.start_auto()
+        w.timer.stop()
+        w.advance_frame()
+        with patch("main_window.predict_position", return_value=(-1, 10)):
+            w.advance_frame()
+        self.assertEqual(self.stored_frames(), [0, 1])
 
     def test_clear_starts_a_fresh_session(self):
         w = self.window
